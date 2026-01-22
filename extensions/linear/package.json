@@ -27,6 +27,31 @@
   "license": "MIT",
   "commands": [
     {
+      "name": "quick-issue",
+      "title": "Quick Issue",
+      "description": "Create issues using natural language with NLP parsing.",
+      "mode": "view",
+      "preferences": [
+        {
+          "name": "defaultTeamId",
+          "type": "textfield",
+          "title": "Default Team",
+          "placeholder": "ENG or team ID",
+          "description": "Default team key (e.g., ENG) or ID for quick issue creation. Use /team to override.",
+          "required": true
+        },
+        {
+          "name": "autoAssignToSelf",
+          "type": "checkbox",
+          "title": "Auto-Assign",
+          "label": "Assign issues to myself by default",
+          "description": "When enabled, issues are automatically assigned to you unless you specify @someone else.",
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
       "name": "create-issue",
       "title": "Create Issue",
       "description": "Create and assign new issues.",
@@ -1592,10 +1617,12 @@
     "@raycast/utils": "^1.0.0",
     "date-fns": "^4.1.0",
     "file-type": "^20.4.1",
+    "fuse.js": "^7.1.0",
     "lodash": "^4.17.21",
     "nanoid": "^5.1.5",
     "node-emoji": "^2.2.0",
-    "remove-markdown": "^0.6.0"
+    "remove-markdown": "^0.6.0",
+    "sherlockjs": "^1.4.2"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.4",
