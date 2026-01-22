@@ -74,12 +74,8 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
   const handleSearchTextChange = useCallback(
     (text: string) => {
       setSearchText(text);
-      if (text.trim().length > 0) {
-        const parsed = parseQuickIssue(text, linearData);
-        setParsedIssue(parsed);
-      } else {
-        setParsedIssue(null);
-      }
+      const trimmed = text.trim();
+      setParsedIssue(trimmed ? parseQuickIssue(text, linearData) : null);
     },
     [linearData],
   );
@@ -163,24 +159,25 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
   const getSubtitle = useCallback(() => {
     if (!parsedIssue) return "";
 
-    // Format: "due date → team · description" (like quick-event)
-    const metaParts: string[] = [];
+    const parts: string[] = [];
 
     // Due date first
     if (parsedIssue.dueDate?.matched && parsedIssue.dueDate.value) {
-      metaParts.push(format(parsedIssue.dueDate.value, "MMM d"));
+      parts.push(format(parsedIssue.dueDate.value, "MMM d"));
     }
 
     // Team with arrow separator
     const teamName = parsedIssue.team?.value ?? defaultTeam?.name;
-    const dateAndTeam = metaParts.length > 0 && teamName ? `${metaParts.join("")} → ${teamName}` : teamName || "";
+    if (teamName) {
+      parts.push(parts.length > 0 ? `→ ${teamName}` : teamName);
+    }
 
     // Description after dot separator
     if (parsedIssue.description) {
-      return dateAndTeam ? `${dateAndTeam} · ${parsedIssue.description}` : parsedIssue.description;
+      parts.push(parts.length > 0 ? `· ${parsedIssue.description}` : parsedIssue.description);
     }
 
-    return dateAndTeam;
+    return parts.join(" ");
   }, [parsedIssue, defaultTeam]);
 
   const getAccessories = useCallback((): List.Item.Accessory[] => {
@@ -241,23 +238,23 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
     }
 
     // Collect errors (shown as red tags at the end)
-    for (const label of parsedIssue.labels.filter((l) => !l.matched)) {
+    const unmatchedLabels = parsedIssue.labels.filter((l) => !l.matched);
+    for (const label of unmatchedLabels) {
       errors.push({ tag: { value: `*${label.rawToken}`, color: Color.Red } });
     }
-    if (parsedIssue.assignee && !parsedIssue.assignee.matched) {
-      errors.push({ tag: { value: `@${parsedIssue.assignee.rawToken}`, color: Color.Red } });
-    }
-    if (parsedIssue.project && !parsedIssue.project.matched) {
-      errors.push({ tag: { value: `#${parsedIssue.project.rawToken}`, color: Color.Red } });
-    }
-    if (parsedIssue.team && !parsedIssue.team.matched) {
-      errors.push({ tag: { value: `/${parsedIssue.team.rawToken}`, color: Color.Red } });
-    }
-    if (parsedIssue.dueDate && !parsedIssue.dueDate.matched) {
-      errors.push({ tag: { value: `<${parsedIssue.dueDate.rawToken}`, color: Color.Red } });
-    }
-    if (parsedIssue.priority && !parsedIssue.priority.matched) {
-      errors.push({ tag: { value: `!${parsedIssue.priority.rawToken}`, color: Color.Red } });
+
+    const errorFields: Array<{ field: { matched: boolean; rawToken: string } | null; prefix: string }> = [
+      { field: parsedIssue.assignee, prefix: "@" },
+      { field: parsedIssue.project, prefix: "#" },
+      { field: parsedIssue.team, prefix: "/" },
+      { field: parsedIssue.dueDate, prefix: "<" },
+      { field: parsedIssue.priority, prefix: "!" },
+    ];
+
+    for (const { field, prefix } of errorFields) {
+      if (field && !field.matched) {
+        errors.push({ tag: { value: `${prefix}${field.rawToken}`, color: Color.Red } });
+      }
     }
 
     return [...accessories, ...errors];

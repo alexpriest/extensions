@@ -31,6 +31,8 @@ export interface ParsedQuickIssue {
 
 // Priority mapping
 const PRIORITY_MAP: Record<string, number> = {
+  "0": 0,
+  none: 0,
   "1": 1,
   urgent: 1,
   "2": 2,
@@ -39,8 +41,14 @@ const PRIORITY_MAP: Record<string, number> = {
   medium: 3,
   "4": 4,
   low: 4,
-  none: 0,
-  "0": 0,
+};
+
+const PRIORITY_LABELS: Record<number, string> = {
+  0: "No Priority",
+  1: "Urgent",
+  2: "High",
+  3: "Medium",
+  4: "Low",
 };
 
 // Token patterns
@@ -254,19 +262,14 @@ export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIss
     }
   }
 
-  // Extract estimate tokens
+  // Extract estimate tokens (numeric or t-shirt sizes like "large", "small")
   const estimateExtract = extractTokens(remaining, PATTERNS.estimate);
   remaining = estimateExtract.remaining;
   if (estimateExtract.tokens.length > 0) {
     const token = estimateExtract.tokens[0];
-    // Try to parse as number first
     const numEstimate = parseFloat(token);
-    if (!isNaN(numEstimate)) {
-      result.estimate = { matched: true, value: numEstimate, rawToken: token };
-    } else {
-      // Keep as string for t-shirt sizes like "large", "small", etc.
-      result.estimate = { matched: true, value: token, rawToken: token };
-    }
+    const value = isNaN(numEstimate) ? token : numEstimate;
+    result.estimate = { matched: true, value, rawToken: token };
   }
 
   // If no explicit deadline was set, try to detect dates naturally from the text
@@ -301,20 +304,6 @@ export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIss
   return result;
 }
 
-// Helper to get priority label
 export function getPriorityLabel(priority: number): string {
-  switch (priority) {
-    case 1:
-      return "Urgent";
-    case 2:
-      return "High";
-    case 3:
-      return "Medium";
-    case 4:
-      return "Low";
-    case 0:
-      return "No Priority";
-    default:
-      return "Unknown";
-  }
+  return PRIORITY_LABELS[priority] ?? "Unknown";
 }
