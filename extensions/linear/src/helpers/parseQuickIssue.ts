@@ -1,4 +1,4 @@
-import { User } from "@linear/sdk";
+import { User, WorkflowState } from "@linear/sdk";
 import Fuse from "fuse.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - sherlockjs doesn't have type declarations
@@ -7,6 +7,8 @@ import Sherlock from "sherlockjs";
 import type { LabelResult } from "../api/getLabels";
 import type { ProjectResult } from "../api/getProjects";
 import type { TeamResult } from "../api/getTeams";
+
+export type StateResult = Pick<WorkflowState, "id" | "name" | "type" | "color">;
 
 // Types for parsed results
 export interface MatchResult<T> {
@@ -26,6 +28,7 @@ export interface ParsedQuickIssue {
   priority: MatchResult<number> | null;
   dueDate: MatchResult<Date> | null;
   estimate: MatchResult<number | string> | null;
+  status: MatchResult<string> | null;
   hasErrors: boolean;
 }
 
@@ -60,6 +63,7 @@ const PATTERNS = {
   assignee: /@(\S+)/g, // @alex
   priority: /!(\S+)/g, // !1 or !urgent
   estimate: /=(\S+)/g, // =3 or =large
+  status: /\$(\S+)/g, // $in-progress or $todo
 };
 
 function extractTokens(input: string, pattern: RegExp): { tokens: string[]; remaining: string } {
@@ -148,6 +152,7 @@ export interface LinearData {
   projects: ProjectResult[];
   labels: LabelResult[];
   users: User[];
+  states: StateResult[];
 }
 
 export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIssue {
@@ -171,6 +176,7 @@ export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIss
     priority: null,
     dueDate: null,
     estimate: null,
+    status: null,
     hasErrors: false,
   };
 
@@ -270,6 +276,20 @@ export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIss
     const numEstimate = parseFloat(token);
     const value = isNaN(numEstimate) ? token : numEstimate;
     result.estimate = { matched: true, value, rawToken: token };
+  }
+
+  // Extract status tokens
+  const statusExtract = extractTokens(remaining, PATTERNS.status);
+  remaining = statusExtract.remaining;
+  if (statusExtract.tokens.length > 0) {
+    const token = statusExtract.tokens[0]; // Only use first status
+    const match = fuzzyMatch(token, data.states ?? [], ["name"]);
+    if (match) {
+      result.status = { matched: true, value: match.item.name, id: match.item.id, rawToken: token };
+    } else {
+      result.status = { matched: false, rawToken: token };
+      result.hasErrors = true;
+    }
   }
 
   // If no explicit deadline was set, try to detect dates naturally from the text

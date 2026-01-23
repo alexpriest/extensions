@@ -21,8 +21,10 @@ import { createIssue, type CreateIssuePayload } from "../api/createIssue";
 import { getDateIcon } from "../helpers/dates";
 import { parseQuickIssue, getPriorityLabel, type ParsedQuickIssue, type LinearData } from "../helpers/parseQuickIssue";
 import { priorityIcons } from "../helpers/priorities";
+import { getStatusIcon } from "../helpers/states";
 import useLabels from "../hooks/useLabels";
 import useProjects from "../hooks/useProjects";
+import useStates from "../hooks/useStates";
 import useTeams from "../hooks/useTeams";
 import useUsers from "../hooks/useUsers";
 
@@ -58,8 +60,10 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
   const { labels, isLoadingLabels } = useLabels(selectedTeamId, { execute: !!selectedTeamId });
   const { users, isLoadingUsers } = useUsers();
   const { projects, isLoadingProjects } = useProjects(selectedTeamId, { execute: !!selectedTeamId });
+  const { states, isLoadingStates } = useStates(selectedTeamId, { execute: !!selectedTeamId });
 
-  const isLoading = propsLoading || isLoadingTeams || isLoadingLabels || isLoadingUsers || isLoadingProjects;
+  const isLoading =
+    propsLoading || isLoadingTeams || isLoadingLabels || isLoadingUsers || isLoadingProjects || isLoadingStates;
 
   const linearData: LinearData = useMemo(
     () => ({
@@ -67,8 +71,9 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       projects: projects ?? [],
       labels: labels ?? [],
       users: users ?? [],
+      states: states ?? [],
     }),
-    [teams, projects, labels, users],
+    [teams, projects, labels, users, states],
   );
 
   const handleSearchTextChange = useCallback(
@@ -116,6 +121,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       assigneeId,
       projectId: parsedIssue.project?.id,
       estimate: typeof parsedIssue.estimate?.value === "number" ? parsedIssue.estimate.value : undefined,
+      stateId: parsedIssue.status?.id,
     };
 
     try {
@@ -237,6 +243,17 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       });
     }
 
+    // Status with state icon
+    if (parsedIssue.status?.matched && parsedIssue.status.id) {
+      const state = states?.find((s) => s.id === parsedIssue.status?.id);
+      if (state) {
+        accessories.push({
+          icon: getStatusIcon(state),
+          tooltip: `Status: ${parsedIssue.status.value}`,
+        });
+      }
+    }
+
     // Collect errors (shown as red tags at the end)
     const unmatchedLabels = parsedIssue.labels.filter((l) => !l.matched);
     for (const label of unmatchedLabels) {
@@ -249,6 +266,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       { field: parsedIssue.team, prefix: "/" },
       { field: parsedIssue.dueDate, prefix: "<" },
       { field: parsedIssue.priority, prefix: "!" },
+      { field: parsedIssue.status, prefix: "$" },
     ];
 
     for (const { field, prefix } of errorFields) {
@@ -258,7 +276,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
     }
 
     return [...accessories, ...errors];
-  }, [parsedIssue]);
+  }, [parsedIssue, states]);
 
   const canCreate = parsedIssue && !parsedIssue.hasErrors && parsedIssue.title.trim().length > 0;
 
@@ -284,7 +302,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       isLoading={isLoading}
       searchText={searchText}
       onSearchTextChange={handleSearchTextChange}
-      searchBarPlaceholder="Fix login bug /eng #mobile *bug @alex !1 <friday"
+      searchBarPlaceholder="Fix login bug /eng #mobile *bug @alex !1 <friday $in-progress"
     >
       {parsedIssue && parsedIssue.title.trim().length > 0 ? (
         <>
@@ -324,7 +342,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
                           teamId: parsedIssue.team?.id ?? defaultTeam?.id ?? "",
                           title: parsedIssue.title,
                           description: parsedIssue.description || "",
-                          stateId: "",
+                          stateId: parsedIssue.status?.id ?? "",
                           priority: String(parsedIssue.priority?.value ?? 0),
                           assigneeId: parsedIssue.assignee?.id ?? "",
                           labelIds: parsedIssue.labels.filter((l) => l.matched && l.id).map((l) => l.id!),
@@ -346,7 +364,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
           </List.Section>
           <List.Section title="Syntax guide">
             <List.Item
-              title="/team  #project  *label  @assignee  !priority  <deadline  // description"
+              title="/team  #project  *label  @assignee  !priority  <deadline  $status  // description"
               icon={{ source: Icon.Info, tintColor: Color.SecondaryText }}
               accessories={[{ text: "⏎ to create", tooltip: "Press Enter to create issue" }]}
             />
@@ -355,7 +373,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       ) : (
         <List.EmptyView
           title="Create a Quick Issue"
-          description={`Type your issue with optional metadata:\n\n/team  #project  *label  @assignee  !priority  <deadline  // description\n\nExample: Fix login bug /eng *bug !1 <friday // Users can't log in with SSO`}
+          description={`Type your issue with optional metadata:\n\n/team  #project  *label  @assignee  !priority  <deadline  $status  // description\n\nExample: Fix login bug /eng *bug !1 <friday $in-progress // Users can't log in with SSO`}
         />
       )}
     </List>
