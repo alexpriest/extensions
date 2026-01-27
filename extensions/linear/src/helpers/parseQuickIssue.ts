@@ -159,11 +159,39 @@ export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIss
   let remaining = input;
   let description = "";
 
+  // Extract quoted strings before parsing (preserves literal text, skips date/token detection)
+  const quotes: string[] = [];
+  remaining = remaining.replace(/"([^"]+)"/g, (_, text) => {
+    quotes.push(text);
+    return `__Q${quotes.length - 1}__`;
+  });
+
+  // Extract URLs from input before parsing (so :// doesn't trigger // description separator)
+  const urls: string[] = [];
+  remaining = remaining.replace(/https?:\/\/\S+/g, (url) => {
+    urls.push(url);
+    return `__URL${urls.length - 1}__`;
+  });
+
   // Extract description after // (must be at end or followed by space then more tokens)
   const descriptionMatch = remaining.match(/\/\/\s*(.*)$/);
   if (descriptionMatch) {
     description = descriptionMatch[1].trim();
     remaining = remaining.slice(0, descriptionMatch.index).trim();
+  }
+
+  // Restore placeholders in description text
+  const restoreQuotes = (text: string) => text.replace(/__Q(\d+)__/g, (_, i) => quotes[parseInt(i)]);
+  const restoreUrls = (text: string) => text.replace(/__URL(\d+)__/g, (_, i) => urls[parseInt(i)]);
+  description = restoreQuotes(restoreUrls(description));
+
+  // Move any URL placeholders from the title portion into description
+  for (let i = 0; i < urls.length; i++) {
+    const placeholder = `__URL${i}__`;
+    if (remaining.includes(placeholder)) {
+      remaining = remaining.replace(placeholder, "").replace(/\s+/g, " ").trim();
+      description = description ? `${urls[i]}\n\n${description}` : urls[i];
+    }
   }
 
   const result: ParsedQuickIssue = {
@@ -318,7 +346,8 @@ export function parseQuickIssue(input: string, data: LinearData): ParsedQuickIss
     }
   }
 
-  // Whatever is left is the title
+  // Restore quoted strings (without the quotes) and set the title
+  remaining = remaining.replace(/__Q(\d+)__/g, (_, i) => quotes[parseInt(i)]);
   result.title = remaining.trim();
 
   return result;
