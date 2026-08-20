@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Icon, List, Toast, showToast, closeMainWindow, Keyboard } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, List, Toast, showToast, closeMainWindow, Keyboard } from "@raycast/api";
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { useGoogleAPIs, withGoogleAPIs } from "./lib/google";
@@ -178,9 +178,9 @@ function QuickCreateEvent() {
   const getIcon = (eventType: EventType) => {
     switch (eventType) {
       case "outOfOffice":
-        return { source: Icon.AirplaneTakeoff, tintColor: "#F6BF27" };
+        return { source: Icon.AirplaneTakeoff, tintColor: Color.Yellow };
       case "focusTime":
-        return { source: Icon.BellDisabled, tintColor: "#7066FE" };
+        return { source: Icon.BellDisabled, tintColor: Color.Purple };
       default:
         return Icon.Calendar;
     }
@@ -228,16 +228,16 @@ function QuickCreateEvent() {
                 ? [
                     {
                       icon: Icon.Warning,
-                      tag: { value: "API limit", color: "#AD1357" },
+                      tag: { value: "API limit", color: Color.Magenta },
                       tooltip: parsedEvent.apiLimitationWarning,
                     },
                   ]
                 : []),
               ...(parsedEvent.location
-                ? [{ icon: Icon.Pin, tag: { value: parsedEvent.location, color: "#EF6D02" } }]
+                ? [{ icon: Icon.Pin, tag: { value: parsedEvent.location, color: Color.Orange } }]
                 : []),
               ...(parsedEvent.attendees && parsedEvent.attendees.length > 0
-                ? [{ icon: Icon.AddPerson, tag: { value: `${parsedEvent.attendees.length}`, color: "#039BE5" } }]
+                ? [{ icon: Icon.AddPerson, tag: { value: `${parsedEvent.attendees.length}`, color: Color.Blue } }]
                 : []),
               ...(parsedEvent.alertMinutes !== undefined
                 ? [
@@ -245,31 +245,31 @@ function QuickCreateEvent() {
                       icon: Icon.AlarmRinging,
                       tag: {
                         value: `${parsedEvent.alertMinutes >= 60 ? `${parsedEvent.alertMinutes / 60}h` : `${parsedEvent.alertMinutes}m`}`,
-                        color: "#D50201",
+                        color: Color.Red,
                       },
                     },
                   ]
                 : []),
-              ...(parsedEvent.showAs === "free" ? [{ tag: { value: "Free", color: "#7CB442" } }] : []),
-              ...(parsedEvent.showAs === "busy" ? [{ tag: { value: "Busy", color: "#616161" } }] : []),
+              ...(parsedEvent.showAs === "free" ? [{ tag: { value: "Free", color: Color.Green } }] : []),
+              ...(parsedEvent.showAs === "busy" ? [{ tag: { value: "Busy", color: Color.SecondaryText } }] : []),
               ...(parsedEvent.recurrenceLabel
-                ? [{ icon: Icon.Repeat, tag: { value: parsedEvent.recurrenceLabel, color: "#775547" } }]
+                ? [{ icon: Icon.Repeat, tag: { value: parsedEvent.recurrenceLabel, color: Color.SecondaryText } }]
                 : []),
               ...(parsedEvent.eventTypeLabel
                 ? [
                     {
                       tag: {
                         value: parsedEvent.eventTypeLabel,
-                        color: parsedEvent.eventType === "outOfOffice" ? "#F6BF27" : "#7066FE",
+                        color: parsedEvent.eventType === "outOfOffice" ? Color.Yellow : Color.Purple,
                       },
                     },
                   ]
                 : []),
-              ...(parsedEvent.timezone ? [{ tag: { value: parsedEvent.timezone, color: "#7CB442" } }] : []),
+              ...(parsedEvent.timezone ? [{ tag: { value: parsedEvent.timezone, color: Color.Green } }] : []),
               ...(parsedEvent.matchedCalendar
                 ? [
                     {
-                      tag: { value: parsedEvent.matchedCalendar, color: parsedEvent.matchedCalendarColor ?? "#616161" },
+                      tag: { value: parsedEvent.matchedCalendar, color: parsedEvent.matchedCalendarColor ?? Color.SecondaryText },
                     },
                   ]
                 : []),
