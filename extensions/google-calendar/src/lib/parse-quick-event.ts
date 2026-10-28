@@ -1050,6 +1050,29 @@ function preprocessQuery(query: string, matchedTimeSpans?: string[]): string {
     return `from ${start}${ampm1} to ${end}${ampm2}`;
   });
 
+  // Handle colon ranges without am/pm like "11:15-12:45", "11-12:45", "13:00-14:30".
+  // Without this, the 24h hour-range pattern below grabs the inner "15-12" and
+  // yields 3pm→12pm with "11: :45" left in the title. At least one side must
+  // carry a colon so plain "9-5" still reaches the hour-range patterns.
+  const colonRangePattern =
+    /(?<![\d:/])\b(\d{1,2})(?::(\d{2}))?\s*-\s*(\d{1,2})(?::(\d{2}))?\b(?!\s*(?:am|pm|[ap]\b)|:|\d)/gi;
+  query = query.replace(colonRangePattern, (match, sh, sm, eh, em) => {
+    if (sm === undefined && em === undefined) return match;
+    const start = parseInt(sh, 10);
+    const end = parseInt(eh, 10);
+    const startMin = sm ?? "00";
+    const endMin = em ?? "00";
+    if (start > 23 || end > 23 || parseInt(startMin, 10) >= 60 || parseInt(endMin, 10) >= 60) return match;
+    recordSpan(match);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    if (start === 0 || end === 0 || start > 12 || end > 12) {
+      return `from ${pad(start)}:${startMin} to ${pad(end)}:${endMin}`;
+    }
+    const startAmPm = start >= 5 && start < 12 ? "am" : "pm";
+    const endAmPm = startAmPm === "am" && (end === 12 || end < start) ? "pm" : startAmPm;
+    return `from ${start}:${startMin}${startAmPm} to ${end}:${endMin}${endAmPm}`;
+  });
+
   // Handle bare compact ranges without am/pm like "830-1130", "1030-2", "830-11"
   // (compact 3-4 digit start, any end). Apply same cross-noon heuristic as simpleHourRangePattern.
   const bareCompactRangePattern = /\b(\d{3,4})\s*-\s*(\d{1,4})\b/g;
