@@ -87,17 +87,6 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
     }
   }, [preferences.screenshotDirectory, addAttachments]);
 
-  const attachFromClipboard = useCallback(async () => {
-    const { file } = await Clipboard.read();
-    const filePath = file ? (file.startsWith("file://") ? fileURLToPath(file) : file) : await saveClipboardImage();
-    if (!filePath) {
-      await showToast({ style: Toast.Style.Failure, title: "No image or file on the clipboard" });
-      return;
-    }
-    addAttachments([filePath]);
-    await showToast({ style: Toast.Style.Success, title: "Attached from clipboard", message: path.basename(filePath) });
-  }, [addAttachments]);
-
   // Fetch data for fuzzy matching
   const { teams, isLoadingTeams } = useTeams();
   const defaultTeam = useMemo(() => {
@@ -136,6 +125,22 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
     },
     [linearData],
   );
+
+  // Bound to ⌘V: a file or image on the clipboard becomes an attachment; plain text pastes into the search bar.
+  const pasteFromClipboard = useCallback(async () => {
+    const { file, text } = await Clipboard.read();
+    if (!file && text) {
+      handleSearchTextChange(searchText + text);
+      return;
+    }
+    const filePath = file ? (file.startsWith("file://") ? fileURLToPath(file) : file) : await saveClipboardImage();
+    if (!filePath) {
+      await showToast({ style: Toast.Style.Failure, title: "Nothing to paste" });
+      return;
+    }
+    addAttachments([filePath]);
+    await showToast({ style: Toast.Style.Success, title: "Attached from clipboard", message: path.basename(filePath) });
+  }, [searchText, handleSearchTextChange, addAttachments]);
 
   const handleCreateIssue = useCallback(async () => {
     if (!parsedIssue || parsedIssue.hasErrors || !parsedIssue.title.trim()) {
@@ -387,10 +392,10 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
         onAction={attachLatestScreenshot}
       />
       <Action
-        title="Attach from Clipboard"
+        title="Paste Screenshot"
         icon={Icon.Clipboard}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "v" }}
-        onAction={attachFromClipboard}
+        shortcut={{ modifiers: ["cmd"], key: "v" }}
+        onAction={pasteFromClipboard}
       />
       <Action.Push
         title="Choose Screenshot"
