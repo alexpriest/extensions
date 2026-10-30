@@ -11,7 +11,8 @@ export async function uploadFile(filePath: string) {
 
   const buffer = await readFile(filePath);
   const type = await fileTypeFromFile(filePath);
-  const file = new Blob([buffer], { type: type?.mime });
+  const contentType = type?.mime ?? "application/octet-stream";
+  const file = new Blob([buffer], { type: contentType });
   const name = path.basename(filePath);
 
   const { data } = await graphQLClient.rawRequest<
@@ -21,8 +22,8 @@ export async function uploadFile(filePath: string) {
     Record<string, unknown>
   >(
     `
-      mutation {
-        fileUpload(size: ${file.size}, contentType: "${file.type}", filename: "${name}") {
+      mutation ($size: Int!, $contentType: String!, $filename: String!) {
+        fileUpload(size: $size, contentType: $contentType, filename: $filename) {
           uploadFile {
             headers {
               key
@@ -34,26 +35,27 @@ export async function uploadFile(filePath: string) {
         }
       }
     `,
+    { size: file.size, contentType, filename: name },
   );
 
   const uploadFile = data?.fileUpload.uploadFile;
-
-  const authHeader = uploadFile?.headers[0];
   const uploadUrl = uploadFile?.uploadUrl;
 
-  if (uploadUrl && authHeader?.key && authHeader?.value) {
-    const options = {
-      method: "PUT",
-      headers: {
-        [authHeader?.key]: authHeader?.value,
-        "Content-Type": file.type,
-      },
-      body: buffer,
+  if (uploadUrl && uploadFile.headers.length > 0) {
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=31536000",
     };
+    for (const { key, value } of uploadFile.headers) {
+      headers[key] = value;
+    }
 
-    await fetch(uploadUrl, options);
+    const response = await fetch(uploadUrl, { method: "PUT", headers, body: buffer });
+    if (!response.ok) {
+      throw new Error(`Upload of ${name} failed: ${response.status} ${response.statusText}`);
+    }
 
-    return { assetUrl: uploadFile?.assetUrl, name };
+    return { assetUrl: uploadFile.assetUrl, name };
   }
 }
 

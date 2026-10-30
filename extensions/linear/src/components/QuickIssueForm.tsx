@@ -1,3 +1,6 @@
+import path from "path";
+import { fileURLToPath } from "url";
+
 import { IssuePriorityValue, User } from "@linear/sdk";
 import {
   List,
@@ -17,10 +20,18 @@ import {
 import { format } from "date-fns";
 import { useState, useCallback, useMemo } from "react";
 
+import { uploadFile } from "../api/attachments";
 import { createIssue, type CreateIssuePayload } from "../api/createIssue";
 import { getDateIcon } from "../helpers/dates";
 import { parseQuickIssue, getPriorityLabel, type ParsedQuickIssue, type LinearData } from "../helpers/parseQuickIssue";
 import { priorityIcons } from "../helpers/priorities";
+import {
+  appendAttachmentsToDescription,
+  findRecentScreenshots,
+  isImagePath,
+  resolveScreenshotDirectory,
+  saveClipboardImage,
+} from "../helpers/quickIssueAttachments";
 import { getStatusIcon } from "../helpers/states";
 import useLabels from "../hooks/useLabels";
 import useProjects from "../hooks/useProjects";
@@ -29,6 +40,7 @@ import useTeams from "../hooks/useTeams";
 import useUsers from "../hooks/useUsers";
 
 import CreateIssueForm from "./CreateIssueForm";
+import RecentScreenshotsGrid from "./RecentScreenshotsGrid";
 
 interface QuickIssueFormProps {
   priorities: IssuePriorityValue[] | undefined;
@@ -39,12 +51,52 @@ interface QuickIssueFormProps {
 interface Preferences {
   defaultTeamId?: string;
   autoAssignToSelf?: boolean;
+  screenshotDirectory?: string;
 }
 
 export default function QuickIssueForm({ priorities, me, isLoading: propsLoading }: QuickIssueFormProps) {
   const [searchText, setSearchText] = useState("");
   const [parsedIssue, setParsedIssue] = useState<ParsedQuickIssue | null>(null);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const preferences = getPreferenceValues<Preferences>();
+
+  const addAttachments = useCallback((filePaths: string[]) => {
+    setAttachments((current) => [...current, ...filePaths.filter((filePath) => !current.includes(filePath))]);
+  }, []);
+
+  const removeAttachment = useCallback((filePath: string) => {
+    setAttachments((current) => current.filter((existing) => existing !== filePath));
+  }, []);
+
+  const attachLatestScreenshot = useCallback(async () => {
+    const directory = await resolveScreenshotDirectory(preferences.screenshotDirectory);
+    try {
+      const [latest] = await findRecentScreenshots(directory, 1);
+      if (!latest) {
+        await showToast({ style: Toast.Style.Failure, title: "No screenshots found", message: directory });
+        return;
+      }
+      addAttachments([latest.path]);
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Attached screenshot",
+        message: path.basename(latest.path),
+      });
+    } catch (error) {
+      await showToast({ style: Toast.Style.Failure, title: "Can't read screenshot folder", message: String(error) });
+    }
+  }, [preferences.screenshotDirectory, addAttachments]);
+
+  const attachFromClipboard = useCallback(async () => {
+    const { file } = await Clipboard.read();
+    const filePath = file ? (file.startsWith("file://") ? fileURLToPath(file) : file) : await saveClipboardImage();
+    if (!filePath) {
+      await showToast({ style: Toast.Style.Failure, title: "No image or file on the clipboard" });
+      return;
+    }
+    addAttachments([filePath]);
+    await showToast({ style: Toast.Style.Success, title: "Attached from clipboard", message: path.basename(filePath) });
+  }, [addAttachments]);
 
   // Fetch data for fuzzy matching
   const { teams, isLoadingTeams } = useTeams();
@@ -111,21 +163,38 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       assigneeId = me.id;
     }
 
-    const payload: CreateIssuePayload = {
-      title: parsedIssue.title,
-      description: parsedIssue.description || "",
-      teamId,
-      priority: parsedIssue.priority?.value ?? 0,
-      dueDate: parsedIssue.dueDate?.value ?? null,
-      labelIds: parsedIssue.labels.filter((l) => l.matched && l.id).map((l) => l.id!),
-      assigneeId,
-      projectId: parsedIssue.project?.id,
-      estimate: typeof parsedIssue.estimate?.value === "number" ? parsedIssue.estimate.value : undefined,
-      stateId: parsedIssue.status?.id,
-    };
-
     try {
-      const toast = await showToast({ style: Toast.Style.Animated, title: "Creating issue..." });
+      const toast = await showToast({
+        style: Toast.Style.Animated,
+        title: attachments.length > 0 ? "Uploading attachments..." : "Creating issue...",
+      });
+
+      let description = parsedIssue.description || "";
+      if (attachments.length > 0) {
+        const uploads = await Promise.all(attachments.map((filePath) => uploadFile(filePath)));
+        if (uploads.some((upload) => !upload)) {
+          throw new Error("Linear did not return an upload URL");
+        }
+        description = appendAttachmentsToDescription(
+          description,
+          uploads.filter((upload) => upload !== undefined),
+        );
+        toast.title = "Creating issue...";
+      }
+
+      const payload: CreateIssuePayload = {
+        title: parsedIssue.title,
+        description,
+        teamId,
+        priority: parsedIssue.priority?.value ?? 0,
+        dueDate: parsedIssue.dueDate?.value ?? null,
+        labelIds: parsedIssue.labels.filter((l) => l.matched && l.id).map((l) => l.id!),
+        assigneeId,
+        projectId: parsedIssue.project?.id,
+        estimate: typeof parsedIssue.estimate?.value === "number" ? parsedIssue.estimate.value : undefined,
+        stateId: parsedIssue.status?.id,
+      };
+
       const result = await createIssue(payload);
 
       if (result.success && result.issue) {
@@ -149,6 +218,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
         };
         setSearchText("");
         setParsedIssue(null);
+        setAttachments([]);
       } else {
         toast.style = Toast.Style.Failure;
         toast.title = "Failed to create issue";
@@ -160,7 +230,7 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
         message: String(error),
       });
     }
-  }, [parsedIssue, defaultTeam, preferences.autoAssignToSelf, me]);
+  }, [parsedIssue, defaultTeam, preferences.autoAssignToSelf, me, attachments]);
 
   const getSubtitle = useCallback(() => {
     if (!parsedIssue) return "";
@@ -297,6 +367,53 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
     );
   }
 
+  const hasTitle = !!parsedIssue && parsedIssue.title.trim().length > 0;
+
+  const createAction = (
+    <Action
+      title="Create Issue"
+      icon={Icon.Plus}
+      shortcut={{ modifiers: [], key: "return" } as Keyboard.Shortcut}
+      onAction={canCreate ? handleCreateIssue : undefined}
+    />
+  );
+
+  const attachActions = (
+    <ActionPanel.Section title="Attach">
+      <Action
+        title="Attach Latest Screenshot"
+        icon={Icon.Camera}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "s" }}
+        onAction={attachLatestScreenshot}
+      />
+      <Action
+        title="Attach from Clipboard"
+        icon={Icon.Clipboard}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "v" }}
+        onAction={attachFromClipboard}
+      />
+      <Action.Push
+        title="Choose Screenshot"
+        icon={Icon.Image}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+        target={
+          <RecentScreenshotsGrid directoryPreference={preferences.screenshotDirectory} onSelect={addAttachments} />
+        }
+      />
+    </ActionPanel.Section>
+  );
+
+  const attachmentAccessory: List.Item.Accessory[] =
+    attachments.length > 0
+      ? [
+          {
+            icon: Icon.Paperclip,
+            text: String(attachments.length),
+            tooltip: attachments.map((a) => path.basename(a)).join(", "),
+          },
+        ]
+      : [];
+
   return (
     <List
       isLoading={isLoading}
@@ -304,78 +421,102 @@ export default function QuickIssueForm({ priorities, me, isLoading: propsLoading
       onSearchTextChange={handleSearchTextChange}
       searchBarPlaceholder="Fix login bug /eng #mobile *bug @alex !1 <friday $in-progress"
     >
-      {parsedIssue && parsedIssue.title.trim().length > 0 ? (
-        <>
-          <List.Section title="Your quick issue">
+      {hasTitle && parsedIssue ? (
+        <List.Section title="Your quick issue">
+          <List.Item
+            title={parsedIssue.title || "Untitled issue"}
+            subtitle={getSubtitle()}
+            icon={
+              parsedIssue.hasErrors
+                ? { source: Icon.Warning, tintColor: Color.Red }
+                : {
+                    source: priorityIcons[parsedIssue.priority?.value ?? 0],
+                    tooltip: `Priority: ${getPriorityLabel(parsedIssue.priority?.value ?? 0)}`,
+                  }
+            }
+            accessories={[...attachmentAccessory, ...getAccessories()]}
+            actions={
+              <ActionPanel>
+                {createAction}
+                <Action.Push
+                  title="Open Full Form"
+                  icon={Icon.AppWindowSidebarRight}
+                  shortcut={{ modifiers: ["cmd"], key: "return" }}
+                  target={
+                    <CreateIssueForm
+                      priorities={priorities}
+                      me={me}
+                      teamId={parsedIssue.team?.id ?? defaultTeam?.id}
+                      projectId={parsedIssue.project?.id}
+                      assigneeId={parsedIssue.assignee?.id}
+                      draftValues={{
+                        teamId: parsedIssue.team?.id ?? defaultTeam?.id ?? "",
+                        title: parsedIssue.title,
+                        description: parsedIssue.description || "",
+                        stateId: parsedIssue.status?.id ?? "",
+                        priority: String(parsedIssue.priority?.value ?? 0),
+                        assigneeId: parsedIssue.assignee?.id ?? "",
+                        labelIds: parsedIssue.labels.filter((l) => l.matched && l.id).map((l) => l.id!),
+                        estimate: parsedIssue.estimate?.value ? String(parsedIssue.estimate.value) : "",
+                        dueDate: parsedIssue.dueDate?.value ?? null,
+                        cycleId: "",
+                        projectId: parsedIssue.project?.id ?? "",
+                        milestoneId: "",
+                        parentId: "",
+                        attachments,
+                        links: "",
+                      }}
+                    />
+                  }
+                />
+                {attachActions}
+              </ActionPanel>
+            }
+          />
+        </List.Section>
+      ) : null}
+      {attachments.length > 0 ? (
+        <List.Section title="Attachments">
+          {attachments.map((filePath) => (
             <List.Item
-              title={parsedIssue.title || "Untitled issue"}
-              subtitle={getSubtitle()}
-              icon={
-                parsedIssue.hasErrors
-                  ? { source: Icon.Warning, tintColor: Color.Red }
-                  : {
-                      source: priorityIcons[parsedIssue.priority?.value ?? 0],
-                      tooltip: `Priority: ${getPriorityLabel(parsedIssue.priority?.value ?? 0)}`,
-                    }
-              }
-              accessories={getAccessories()}
+              key={filePath}
+              title={path.basename(filePath)}
+              icon={isImagePath(filePath) ? { source: filePath } : { fileIcon: filePath }}
+              quickLook={{ path: filePath }}
               actions={
                 <ActionPanel>
+                  {hasTitle ? createAction : null}
                   <Action
-                    title="Create Issue"
-                    icon={Icon.Plus}
-                    shortcut={{ modifiers: [], key: "return" } as Keyboard.Shortcut}
-                    onAction={canCreate ? handleCreateIssue : undefined}
+                    title="Remove Attachment"
+                    icon={Icon.Trash}
+                    style={Action.Style.Destructive}
+                    shortcut={{ modifiers: ["ctrl"], key: "x" }}
+                    onAction={() => removeAttachment(filePath)}
                   />
-                  <Action.Push
-                    title="Open Full Form"
-                    icon={Icon.AppWindowSidebarRight}
-                    shortcut={{ modifiers: ["cmd"], key: "return" }}
-                    target={
-                      <CreateIssueForm
-                        priorities={priorities}
-                        me={me}
-                        teamId={parsedIssue.team?.id ?? defaultTeam?.id}
-                        projectId={parsedIssue.project?.id}
-                        assigneeId={parsedIssue.assignee?.id}
-                        draftValues={{
-                          teamId: parsedIssue.team?.id ?? defaultTeam?.id ?? "",
-                          title: parsedIssue.title,
-                          description: parsedIssue.description || "",
-                          stateId: parsedIssue.status?.id ?? "",
-                          priority: String(parsedIssue.priority?.value ?? 0),
-                          assigneeId: parsedIssue.assignee?.id ?? "",
-                          labelIds: parsedIssue.labels.filter((l) => l.matched && l.id).map((l) => l.id!),
-                          estimate: parsedIssue.estimate?.value ? String(parsedIssue.estimate.value) : "",
-                          dueDate: parsedIssue.dueDate?.value ?? null,
-                          cycleId: "",
-                          projectId: parsedIssue.project?.id ?? "",
-                          milestoneId: "",
-                          parentId: "",
-                          attachments: [],
-                          links: "",
-                        }}
-                      />
-                    }
-                  />
+                  <Action.ToggleQuickLook shortcut={{ modifiers: ["cmd"], key: "y" }} />
+                  {attachActions}
                 </ActionPanel>
               }
             />
-          </List.Section>
-          <List.Section title="Syntax guide">
-            <List.Item
-              title="/team  #project  *label  @assignee  !priority  <deadline  $status  // description"
-              icon={{ source: Icon.Info, tintColor: Color.SecondaryText }}
-              accessories={[{ text: "⏎ to create", tooltip: "Press Enter to create issue" }]}
-            />
-          </List.Section>
-        </>
-      ) : (
+          ))}
+        </List.Section>
+      ) : null}
+      {hasTitle ? (
+        <List.Section title="Syntax guide">
+          <List.Item
+            title="/team  #project  *label  @assignee  !priority  <deadline  $status  // description"
+            icon={{ source: Icon.Info, tintColor: Color.SecondaryText }}
+            accessories={[{ text: "⏎ to create", tooltip: "Press Enter to create issue" }]}
+          />
+        </List.Section>
+      ) : null}
+      {!hasTitle && attachments.length === 0 ? (
         <List.EmptyView
           title="Create a Quick Issue"
           description={`Type your issue with optional metadata:\n\n/team  #project  *label  @assignee  !priority  <deadline  $status  // description\n\nExample: Fix login bug /eng *bug !1 <friday $in-progress // Users can't log in with SSO`}
+          actions={<ActionPanel>{attachActions}</ActionPanel>}
         />
-      )}
+      ) : null}
     </List>
   );
 }

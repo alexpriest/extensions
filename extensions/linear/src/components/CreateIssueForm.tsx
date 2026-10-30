@@ -247,6 +247,7 @@ export default function CreateIssueForm(props: CreateIssueFormProps) {
       projectId: props.draftValues?.projectId || props.projectId,
       milestoneId: props.draftValues?.milestoneId || props.milestoneId,
       parentId: props.draftValues?.parentId || props.parentId,
+      attachments: props.draftValues?.attachments || [],
       links: props.draftValues?.links || "",
     },
   });

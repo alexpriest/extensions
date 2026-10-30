@@ -48,6 +48,13 @@
           "description": "When enabled, issues are automatically assigned to you unless you specify @someone else.",
           "default": false,
           "required": false
+        },
+        {
+          "name": "screenshotDirectory",
+          "type": "directory",
+          "title": "Screenshot Folder",
+          "description": "Where to find screenshots to attach. Defaults to CleanShot's export folder, then the macOS screenshot location.",
+          "required": false
         }
       ]
     },
